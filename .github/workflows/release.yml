@@ -1,0 +1,37 @@
+name: release
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: armssim-rs
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build portable exe
+        run: cargo build --release
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Stage portable artifact
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          $out = "armssim-$ver-x86_64-windows.exe"
+          Copy-Item "target/release/armssim.exe" $out -Force
+          "PORTABLE=armssim-rs/$out" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.PORTABLE }}
+          fail_on_unmatched_files: true

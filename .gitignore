@@ -1,0 +1,18 @@
+# Rust build output
+/armssim-rs/target/
+
+# Vendored WoWSims TBC engine — its own upstream clone, not tracked here.
+# See README "Getting the engine" for how to (re)build it.
+/engine/
+
+# Personal character exports (README's documented default path/name).
+/me.json
+
+# Claude Code runtime state
+/.claude/
+
+# GUI build output + Node deps + staged engine resources (build-time copy of /engine/)
+/armssim-gui/node_modules/
+/armssim-gui/dist/
+/armssim-gui/src-tauri/target/
+/armssim-gui/src-tauri/engine-resources/

@@ -1,0 +1,166 @@
+mod cli;
+
+use std::io::Write;
+
+use anyhow::Context;
+use clap::Parser;
+
+use armssim::app::character::Character;
+use armssim::app::optimize;
+use armssim::app::simulator::Simulator;
+use armssim::domain::gear::GearSet;
+use armssim::domain::item::ItemCatalog;
+use armssim::domain::objective::Objective;
+use armssim::domain::plan::{self, Plan};
+use armssim::domain::report;
+use armssim::infra::engine;
+use armssim::infra::itemdb::DbCatalog;
+use armssim::infra::wowsims::WowSimsBackend;
+use cli::{Args, Only};
+
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("armssim: {e:#}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> anyhow::Result<()> {
+    let args = Args::parse();
+
+    if !(0.0..=1.0).contains(&args.aoe_fraction) {
+        anyhow::bail!("--aoe-fraction must be between 0 and 1");
+    }
+
+    let data = std::fs::read(&args.character)
+        .with_context(|| format!("read {}", args.character.display()))?;
+    let character = Character::parse(&data)?;
+    println!("Character: {} — {} Arms", character.name, character.race);
+
+    let engine = engine::resolve(args.engine.clone())?;
+    let catalog = DbCatalog::load(&engine.db_json)?;
+    let jobs = args.jobs.unwrap_or_else(default_jobs);
+    let backend = WowSimsBackend::new(&character, &engine, jobs)?;
+
+    let equipped = character.equipped_set();
+    let plan = Plan::build(&equipped, &character.bag_items, &catalog);
+    println!(
+        "Candidate pool: {} bag/bank items ({} skipped as non-gear or not a two-hander)",
+        character.bag_items.len(),
+        plan.skipped.len()
+    );
+    warn_if_not_two_handed(&equipped, &catalog);
+
+    // Precise baseline (current gear) at final iterations.
+    let (base_st, base_aoe) = optimize::eval(&backend, &equipped, args.final_iterations, args.seed)
+        .context("baseline sim")?;
+    println!("Current gear:  ST {base_st:.1}   AoE {base_aoe:.1} DPS");
+
+    let objectives = select_objectives(args.only, args.aoe_fraction);
+    let ran_blend = objectives
+        .iter()
+        .any(|o| matches!(o, Objective::Blend { .. }));
+
+    for objective in &objectives {
+        optimize_and_report(
+            &backend, &plan, &catalog, &equipped, *objective, base_st, base_aoe, &args,
+        )?;
+    }
+
+    if ran_blend {
+        println!("\nThe BLEND set is the 'no need to pick' choice — it maximises effective DPS");
+        println!("over a fight that is part single-target, part AoE (tune with --aoe-fraction).");
+    }
+    println!("\nNote: coordinate ascent swaps one slot at a time, so multi-piece tier-set");
+    println!("bonuses (Warbringer/Onslaught 4-piece) may not be fully captured.");
+    Ok(())
+}
+
+fn select_objectives(only: Only, aoe_fraction: f64) -> Vec<Objective> {
+    let st = Objective::SingleTarget;
+    let blend = Objective::Blend { aoe_fraction };
+    let aoe = Objective::Aoe;
+    match only {
+        Only::All => vec![st, blend, aoe],
+        Only::St => vec![st],
+        Only::Blend => vec![blend],
+        Only::Aoe => vec![aoe],
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn optimize_and_report(
+    backend: &dyn Simulator,
+    plan: &Plan,
+    catalog: &dyn ItemCatalog,
+    equipped: &GearSet,
+    objective: Objective,
+    base_st: f64,
+    base_aoe: f64,
+    args: &Args,
+) -> anyhow::Result<()> {
+    let name = objective.name();
+    let progress = |n: usize| {
+        eprint!("\r  [{name}] searching... {n} sims");
+        let _ = std::io::stderr().flush();
+    };
+
+    let ascent = optimize::ascend(
+        backend,
+        plan,
+        equipped,
+        objective,
+        args.iterations,
+        args.seed,
+        progress,
+    )
+    .with_context(|| format!("ascend ({name})"))?;
+    eprintln!();
+
+    // Re-sim the winner precisely in BOTH scenarios to show the real trade-off.
+    let (st, aoe) = optimize::eval(backend, &ascent.best, args.final_iterations, args.seed)
+        .with_context(|| format!("final re-sim ({name})"))?;
+
+    println!(
+        "\n=== BEST FOR {name} ===  ({} search sims)",
+        ascent.evaluations
+    );
+    println!(
+        "  ST  {st:.1}  ({:+.1}, {:+.2}%)    AoE {aoe:.1}  ({:+.1}, {:+.2}%)",
+        st - base_st,
+        100.0 * (st - base_st) / base_st,
+        aoe - base_aoe,
+        100.0 * (aoe - base_aoe) / base_aoe
+    );
+
+    let changes = report::diff(equipped, &ascent.best, catalog);
+    if changes.is_empty() {
+        println!("  Current gear is already optimal here.");
+        return Ok(());
+    }
+    println!("  Equip:");
+    for ch in changes {
+        println!("    {:<9} {}  ->  {}", ch.label, ch.from, ch.to);
+    }
+    Ok(())
+}
+
+/// Arms is a two-handed spec: a one-hander (with or without an off-hand) means
+/// the export was taken in the wrong gear. The search still runs — it will move
+/// onto a 2H if the bags hold one — but the baseline number is not an Arms
+/// number, so say so rather than quietly reporting it.
+fn warn_if_not_two_handed(equipped: &GearSet, catalog: &dyn ItemCatalog) {
+    match equipped.get(14) {
+        Some(mh) if plan::is_two_hander(catalog, mh.id) => {}
+        Some(_) => eprintln!(
+            "warning: equipped main hand is not a two-hander — armssim only equips 2H              weapons, so 'Current gear' is not a valid Arms setup."
+        ),
+        None => eprintln!("warning: no main hand equipped in the export."),
+    }
+}
+
+fn default_jobs() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(8)
+}

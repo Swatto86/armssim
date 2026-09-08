@@ -1,0 +1,17 @@
+## Title: ExportAll
+## Version: 1.0.0
+## Author: Swatto
+## Interface: 50504, 50503, 40402, 38001, 20505, 11508
+## Notes: Exports equipped gear + bag + bank items as a single JSON string in one shot. No WSE dependency. Built for armssim.
+## Category: Development Tools
+
+embeds.xml
+
+extras.lua [AllowLoadGameType vanilla, tbc, wrath, cata, mists]
+Shared.lua
+Conditional_TBC.lua [AllowLoadGameType tbc]
+ExportStructures/ItemSpec.lua
+ExportStructures/EquipmentSpec.lua
+ExportStructures/Misc.lua
+ExportStructures/Character.lua
+ExportAll.lua

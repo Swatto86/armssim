@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <link rel="icon" type="image/png" href="/src/assets/icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>armssim</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body class="min-h-screen bg-base-200">
+    <main class="container mx-auto max-w-3xl p-6 flex flex-col gap-6">
+      <header class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <img src="/src/assets/icon.png" alt="" class="w-8 h-8" />
+          <h1 class="text-2xl font-bold">armssim</h1>
+        </div>
+        <div class="flex items-center gap-3">
+          <label class="label cursor-pointer gap-2">
+            <span class="label-text text-xs">Start with Windows</span>
+            <input id="autostart-toggle" type="checkbox" class="toggle toggle-sm" />
+          </label>
+          <select id="theme-select" class="select select-sm w-28">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+          <button id="about-btn" type="button" class="btn btn-sm btn-ghost">About</button>
+        </div>
+      </header>
+
+      <section class="card bg-base-100 shadow">
+        <div class="card-body gap-3">
+          <h2 class="card-title text-base">Character export</h2>
+          <textarea
+            id="character-json"
+            class="textarea textarea-bordered w-full font-mono text-xs"
+            rows="6"
+            placeholder="Paste the WowSimsExporter 'Export Everything' JSON here"
+          ></textarea>
+        </div>
+      </section>
+
+      <section class="card bg-base-100 shadow">
+        <div class="card-body gap-3">
+          <h2 class="card-title text-base">Settings</h2>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <label class="form-control">
+              <span class="label-text text-xs">Only</span>
+              <select id="setting-only" class="select select-bordered select-sm">
+                <option value="all">All</option>
+                <option value="st">Single target</option>
+                <option value="blend">Blend</option>
+                <option value="aoe">AoE</option>
+              </select>
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs">AoE fraction</span>
+              <input id="setting-aoe-fraction" type="number" min="0" max="1" step="0.05" class="input input-bordered input-sm" />
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs">Iterations</span>
+              <input id="setting-iterations" type="number" min="1" class="input input-bordered input-sm" />
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs">Final iterations</span>
+              <input id="setting-final-iterations" type="number" min="1" class="input input-bordered input-sm" />
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs">Seed</span>
+              <input id="setting-seed" type="number" class="input input-bordered input-sm" />
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs">Jobs (blank = CPU count)</span>
+              <input id="setting-jobs" type="number" min="1" class="input input-bordered input-sm" placeholder="auto" />
+            </label>
+          </div>
+          <p id="settings-error" class="text-error text-xs hidden"></p>
+        </div>
+      </section>
+
+      <div class="flex items-center gap-3">
+        <button id="run-btn" type="button" class="btn btn-primary">Run</button>
+        <span id="status" class="text-sm opacity-70"></span>
+      </div>
+
+      <section id="results" class="flex flex-col gap-4"></section>
+    </main>
+
+    <dialog id="about-dialog" class="modal">
+      <div class="modal-box">
+        <div class="flex items-center gap-2">
+          <img src="/src/assets/icon.png" alt="" class="w-10 h-10" />
+          <h3 class="font-bold text-lg">armssim</h3>
+        </div>
+        <p class="py-1 text-sm">Arms-warrior gear optimizer for WoW: TBC Anniversary.</p>
+        <p class="py-1 text-sm">Version: <span id="about-version"></span></p>
+        <p class="py-1 text-sm">
+          <a class="link" id="about-repo-link" href="#">GitHub repository</a>
+        </p>
+        <div class="modal-action">
+          <form method="dialog">
+            <button class="btn">Close</button>
+          </form>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button>close</button>
+      </form>
+    </dialog>
+  </body>
+</html>
