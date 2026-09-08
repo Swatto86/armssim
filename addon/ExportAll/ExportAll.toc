@@ -1,8 +1,8 @@
 ## Title: ExportAll
 ## Version: 1.0.0
 ## Author: Swatto
-## Interface: 50504, 50503, 40402, 38001, 20505, 11508
-## Notes: Exports equipped gear + bag + bank items as a single JSON string in one shot. No WSE dependency. Built for armssim.
+## Interface: 50504, 50503, 40402, 38001, 20506, 20505, 11508
+## Notes: Exports equipped gear + bag + bank items as a single JSON string in one shot. No WSE dependency. Built for furysim/armssim.
 ## Category: Development Tools
 
 embeds.xml
