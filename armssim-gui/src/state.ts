@@ -9,10 +9,18 @@ export interface RunSettings {
   only: OnlySetting;
   seed: number;
   jobs: number | null;
+  noRefine: boolean;
 }
 
 export interface SlotChangeDto {
   label: string;
+  from: string;
+  to: string;
+}
+
+export interface RefineChangeDto {
+  label: string;
+  what: string;
   from: string;
   to: string;
 }
@@ -26,7 +34,10 @@ export interface ObjectiveResult {
   aoeDelta: number;
   aoeDeltaPct: number;
   searchSims: number;
+  refineSims: number;
   changes: SlotChangeDto[];
+  refinements: RefineChangeDto[];
+  missing: string[];
 }
 
 export interface RunResult {
@@ -52,6 +63,7 @@ export const DEFAULT_SETTINGS: RunSettings = {
   only: "all",
   seed: 1,
   jobs: null,
+  noRefine: false,
 };
 
 const CHARACTER_KEY = "armssim.characterJson";

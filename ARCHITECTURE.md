@@ -55,6 +55,13 @@ script has run.
   weapons, so on a two-hander this is the field that actually delivers it.
   Measured at ~5 DPS on the sample export.
 
+- **Meta-gem activation is armssim's job, not the engine's.** `ItemSpec.meta_gem_disabled`
+  is documented in `common.proto` as "set by the UI", and `sim/core/database.go`
+  only reads the flag - it never evaluates the 2-red/2-yellow/2-blue rule. So
+  `infra::request` computes it (`domain::gems`) and flags the item holding an
+  unlit meta. Without that, any set failing the requirement would be simmed with
+  the meta's stats anyway, quietly overstating DPS.
+
 ## Search
 
 Coordinate ascent: hold every slot fixed, try each candidate for one group, keep
@@ -63,6 +70,26 @@ slots, the ring pair, the trinket pair, and the (main-hand-only) weapon group.
 Each candidate evaluation is one `wowsimcli` process; a bounded worker pool
 keeps every core busy. Consequence: multi-piece set bonuses can be missed,
 because each piece looks like a downgrade until the set completes.
+
+## The refinement pass
+
+A socket only exists once the item in the slot is decided, so gems and enchants
+are a **second** ascent (`app::optimize::search`) over the set the first one
+produced. Its groups are *relative* - `Group::Gem`/`Group::Enchant` name
+candidate ids and expand against whatever occupies the slot at the time - which
+is why `Group` is an enum rather than a list of absolute assignments.
+
+Shortlists live in `domain::refine`: gems are ranked from the engine database by
+a rough Arms EP heuristic (top four per socket), enchants are a curated per-slot
+table. The heuristic never picks a winner - the engine does. Two things force
+curation rather than derivation: proc enchants (Mongoose) have an all-zero stat
+line because they are scripted in `sim/common/tbc/enchants.go`, and the useful
+half of a meta gem (Relentless's +3% crit damage) likewise has no stat entry.
+
+Coordinate ascent structurally cannot light a meta gem - no single socket change
+satisfies a 2/2/2 rule, so every step toward it looks like a loss.
+`refine::light_meta` proposes the cheapest set of conversions that lights it, and
+the engine judges that against the greedy set.
 
 ## Engine coupling
 

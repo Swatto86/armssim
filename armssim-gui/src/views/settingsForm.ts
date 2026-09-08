@@ -12,6 +12,7 @@ export async function initSettingsForm(): Promise<SettingsForm> {
   const finalIterationsInput = document.querySelector<HTMLInputElement>("#setting-final-iterations")!;
   const seedInput = document.querySelector<HTMLInputElement>("#setting-seed")!;
   const jobsInput = document.querySelector<HTMLInputElement>("#setting-jobs")!;
+  const refineInput = document.querySelector<HTMLInputElement>("#setting-refine")!;
   const errorEl = document.querySelector<HTMLParagraphElement>("#settings-error")!;
 
   const settings = loadSettings();
@@ -21,6 +22,7 @@ export async function initSettingsForm(): Promise<SettingsForm> {
   finalIterationsInput.value = String(settings.finalIterations);
   seedInput.value = String(settings.seed);
   jobsInput.value = settings.jobs === null ? "" : String(settings.jobs);
+  refineInput.checked = !settings.noRefine;
 
   invoke<number>("get_default_jobs").then((defaultJobs) => {
     jobsInput.placeholder = `auto (${defaultJobs})`;
@@ -29,7 +31,7 @@ export async function initSettingsForm(): Promise<SettingsForm> {
   function persist(): void {
     saveSettings(readRaw());
   }
-  for (const input of [onlySelect, aoeFractionInput, iterationsInput, finalIterationsInput, seedInput, jobsInput]) {
+  for (const input of [onlySelect, aoeFractionInput, iterationsInput, finalIterationsInput, seedInput, jobsInput, refineInput]) {
     input.addEventListener("change", persist);
   }
 
@@ -41,6 +43,7 @@ export async function initSettingsForm(): Promise<SettingsForm> {
       finalIterations: Number(finalIterationsInput.value),
       seed: Number(seedInput.value),
       jobs: jobsInput.value === "" ? null : Number(jobsInput.value),
+      noRefine: !refineInput.checked,
     };
   }
 

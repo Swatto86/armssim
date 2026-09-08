@@ -1,4 +1,4 @@
-import type { ObjectiveResult, RunResult } from "../state";
+import type { ObjectiveResult, RefineChangeDto, RunResult } from "../state";
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -23,7 +23,11 @@ function objectiveCard(objective: ObjectiveResult): HTMLElement {
 
   const header = el("div", "flex items-center justify-between");
   header.appendChild(el("h3", "card-title text-base", objective.name));
-  header.appendChild(el("span", "text-xs opacity-60", `${objective.searchSims} search sims`));
+  const simText =
+    objective.refineSims > 0
+      ? `${objective.searchSims} search sims + ${objective.refineSims} for gems/enchants`
+      : `${objective.searchSims} search sims`;
+  header.appendChild(el("span", "text-xs opacity-60", simText));
   body.appendChild(header);
 
   const dps = el("div", "grid grid-cols-2 gap-2 text-sm");
@@ -49,6 +53,28 @@ function objectiveCard(objective: ObjectiveResult): HTMLElement {
       item.appendChild(el("span", "badge badge-outline badge-sm", change.label));
       item.appendChild(el("span", "font-mono text-xs", `${change.from} -> ${change.to}`));
       list.appendChild(item);
+    }
+    body.appendChild(list);
+  }
+
+  if (objective.refinements.length > 0) {
+    body.appendChild(el("div", "text-xs uppercase opacity-60 mt-1", "Gems & enchants"));
+    const list = el("ul", "text-sm flex flex-col gap-1");
+    for (const change of objective.refinements as RefineChangeDto[]) {
+      const item = el("li", "flex items-center gap-2");
+      item.appendChild(el("span", "badge badge-outline badge-sm", change.label));
+      item.appendChild(el("span", "opacity-60 text-xs", change.what));
+      item.appendChild(el("span", "font-mono text-xs", `${change.from} -> ${change.to}`));
+      list.appendChild(item);
+    }
+    body.appendChild(list);
+  }
+
+  if (objective.missing.length > 0) {
+    body.appendChild(el("div", "text-xs uppercase opacity-60 mt-1", "Still missing"));
+    const list = el("ul", "text-sm flex flex-col gap-1");
+    for (const gap of objective.missing) {
+      list.appendChild(el("li", "text-warning text-xs", gap));
     }
     body.appendChild(list);
   }

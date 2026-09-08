@@ -10,9 +10,65 @@ use super::item::ItemCatalog;
 /// One option assigns one or more slots; `None` clears the slot.
 pub type Assignment = Vec<(usize, Option<ItemSpec>)>;
 
-/// A set of slots optimized together, with its candidate options.
-pub struct Group {
-    pub options: Vec<Assignment>,
+/// One independently-optimized decision. `Swap` options are absolute (they name
+/// the items outright); the refinement variants are relative to whatever item
+/// occupies the slot when the ascent reaches them, which is why they carry ids
+/// rather than pre-built assignments.
+pub enum Group {
+    /// Mutually-exclusive item assignments for a slot or slot pair.
+    Swap(Vec<Assignment>),
+    /// Candidate gems for one socket of the item in `slot`.
+    Gem {
+        slot: usize,
+        index: usize,
+        ids: Vec<i32>,
+    },
+    /// Candidate enchants for the item in `slot`.
+    Enchant { slot: usize, ids: Vec<i32> },
+}
+
+impl Group {
+    /// Every gear set this group can produce from `current`. Options that would
+    /// not change anything are dropped: they would cost a sim to learn nothing.
+    pub fn expand(&self, current: &GearSet) -> Vec<GearSet> {
+        match self {
+            Group::Swap(options) => options.iter().map(|opt| apply(current, opt)).collect(),
+            Group::Gem { slot, index, ids } => {
+                let Some(spec) = current.get(*slot) else {
+                    return Vec::new();
+                };
+                let socketed = spec.gems.get(*index).copied().unwrap_or(0);
+                ids.iter()
+                    .filter(|id| **id != socketed)
+                    .map(|id| {
+                        let mut next = spec.clone();
+                        if next.gems.len() <= *index {
+                            next.gems.resize(*index + 1, 0);
+                        }
+                        next.gems[*index] = *id;
+                        let mut set = current.clone();
+                        set.set(*slot, Some(next));
+                        set
+                    })
+                    .collect()
+            }
+            Group::Enchant { slot, ids } => {
+                let Some(spec) = current.get(*slot) else {
+                    return Vec::new();
+                };
+                ids.iter()
+                    .filter(|id| **id != spec.enchant)
+                    .map(|id| {
+                        let mut next = spec.clone();
+                        next.enchant = *id;
+                        let mut set = current.clone();
+                        set.set(*slot, Some(next));
+                        set
+                    })
+                    .collect()
+            }
+        }
+    }
 }
 
 /// The groups to permute, plus diagnostics.
@@ -115,7 +171,7 @@ impl Plan {
                 add(Some(spec.clone()), &mut seen);
             }
             if options.len() > 1 {
-                groups.push(Group { options });
+                groups.push(Group::Swap(options));
             }
         }
 
@@ -185,7 +241,7 @@ fn add_pair_group(groups: &mut Vec<Group>, slot_a: ItemSlot, slot_b: ItemSlot, p
         }
     }
     if options.len() > 1 {
-        groups.push(Group { options });
+        groups.push(Group::Swap(options));
     }
 }
 
@@ -213,7 +269,7 @@ fn add_weapon_group(groups: &mut Vec<Group>, mh: &[ItemSpec]) {
         ]);
     }
     if options.len() > 1 {
-        groups.push(Group { options });
+        groups.push(Group::Swap(options));
     }
 }
 
@@ -251,6 +307,8 @@ mod tests {
         ItemInfo {
             name: "ring".to_string(),
             slots: vec![ItemSlot::Finger1, ItemSlot::Finger2],
+            sockets: vec![],
+            item_type: 11,
         }
     }
 
@@ -258,21 +316,31 @@ mod tests {
         ItemInfo {
             name: "two-hander".to_string(),
             slots: vec![ItemSlot::MainHand],
+            sockets: vec![],
+            item_type: 13,
         }
     }
 
     fn ring_group_options(plan: &Plan) -> &[Assignment] {
-        &plan
-            .groups
+        plan.groups
             .iter()
-            .find(|g| {
-                g.options.iter().any(|opt| {
-                    opt.iter()
-                        .any(|(slot, _)| *slot == ItemSlot::Finger1.index())
-                })
-            })
+            .find(|g| group_touches(g, ItemSlot::Finger1))
+            .map(options_of)
             .expect("ring group exists")
-            .options
+    }
+
+    /// Item-swap groups are the only kind `Plan::build` produces; refinement
+    /// groups are added later, from a chosen set.
+    fn options_of(group: &Group) -> &[Assignment] {
+        match group {
+            Group::Swap(options) => options,
+            _ => panic!("expected an item-swap group"),
+        }
+    }
+
+    fn group_touches(group: &Group, slot: ItemSlot) -> bool {
+        matches!(group, Group::Swap(options)
+            if options.iter().any(|opt| opt.iter().any(|(s, _)| *s == slot.index())))
     }
 
     fn ids_of(opt: &Assignment) -> Vec<i32> {
@@ -317,17 +385,11 @@ mod tests {
     }
 
     fn weapon_group(plan: &Plan) -> &[Assignment] {
-        &plan
-            .groups
+        plan.groups
             .iter()
-            .find(|g| {
-                g.options.iter().any(|opt| {
-                    opt.iter()
-                        .any(|(slot, _)| *slot == ItemSlot::MainHand.index())
-                })
-            })
+            .find(|g| group_touches(g, ItemSlot::MainHand))
+            .map(options_of)
             .expect("weapon group exists")
-            .options
     }
 
     #[test]
@@ -365,7 +427,7 @@ mod tests {
         assert!(plan.skipped.contains(&999));
         assert!(
             plan.groups.iter().all(|g| {
-                g.options.iter().all(|opt| {
+                options_of(g).iter().all(|opt| {
                     opt.iter()
                         .all(|(_, s)| s.as_ref().is_none_or(|s| s.id != 999))
                 })

@@ -1,6 +1,7 @@
 //! The [`Simulator`] implementation: drives the bundled `wowsimcli` engine, one
 //! subprocess per gear set, across a bounded worker pool sized to the machine.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -31,9 +32,10 @@ impl WowSimsBackend {
         character: &Character,
         engine: &EnginePaths,
         concurrency: usize,
+        gem_colors: HashMap<i32, i32>,
     ) -> anyhow::Result<WowSimsBackend> {
         Ok(WowSimsBackend {
-            builder: RequestBuilder::new(character)?,
+            builder: RequestBuilder::new(character, gem_colors)?,
             cli: engine.cli.clone(),
             concurrency: concurrency.max(1),
         })

@@ -10,6 +10,12 @@ pub struct ItemInfo {
     pub name: String,
     /// Every slot this item can occupy (e.g. a ring → Finger1 + Finger2).
     pub slots: Vec<ItemSlot>,
+    /// Socket colours, in socket order (engine `GemColor` codes). Empty for an
+    /// item with no sockets.
+    pub sockets: Vec<i32>,
+    /// Engine `ItemType`, kept because enchants are keyed by the slot type they
+    /// apply to rather than by equipment slot.
+    pub item_type: i32,
 }
 
 /// Slots for an item given its engine `ItemType` and `HandType` integer codes.

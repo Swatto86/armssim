@@ -60,6 +60,16 @@ impl ItemSlot {
         self as usize
     }
 
+    /// The slot at `index`, or `None` when the index is out of range.
+    pub fn from_index(index: usize) -> Option<ItemSlot> {
+        use ItemSlot::*;
+        const ALL: [ItemSlot; NUM_SLOTS] = [
+            Head, Neck, Shoulder, Back, Chest, Wrist, Hands, Waist, Legs, Feet, Finger1, Finger2,
+            Trinket1, Trinket2, MainHand, OffHand, Ranged,
+        ];
+        ALL.get(index).copied()
+    }
+
     /// Human-readable label used in the change report.
     pub fn label(self) -> &'static str {
         use ItemSlot::*;

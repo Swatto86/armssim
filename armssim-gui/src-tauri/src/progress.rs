@@ -24,6 +24,10 @@ pub struct RunSettings {
     pub only: OnlySetting,
     pub seed: i64,
     pub jobs: Option<usize>,
+    /// Skip the gem/enchant pass. Defaults to false for older saved settings
+    /// that predate it.
+    #[serde(default)]
+    pub no_refine: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -52,7 +56,22 @@ pub struct ObjectiveResult {
     pub aoe_delta: f64,
     pub aoe_delta_pct: f64,
     pub search_sims: usize,
+    pub refine_sims: usize,
     pub changes: Vec<SlotChangeDto>,
+    /// Gem and enchant moves on items the search kept.
+    pub refinements: Vec<RefineChangeDto>,
+    /// Sockets and enchant slots still empty in the recommended set.
+    pub missing: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefineChangeDto {
+    pub label: String,
+    /// "socket 1", "enchant", ...
+    pub what: String,
+    pub from: String,
+    pub to: String,
 }
 
 #[derive(Serialize)]

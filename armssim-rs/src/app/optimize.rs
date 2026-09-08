@@ -3,8 +3,10 @@
 //! improves.
 
 use crate::domain::gear::{GearSet, Scenario};
+use crate::domain::item::ItemCatalog;
 use crate::domain::objective::Objective;
-use crate::domain::plan::{apply, Plan};
+use crate::domain::plan::Plan;
+use crate::domain::refine::{self, RefineCatalog};
 
 use super::simulator::{Job, Simulator};
 
@@ -85,11 +87,10 @@ pub fn ascend(
     loop {
         let mut improved = false;
         for group in &plan.groups {
-            let candidates: Vec<GearSet> = group
-                .options
-                .iter()
-                .map(|opt| apply(&current, opt))
-                .collect();
+            let candidates = group.expand(&current);
+            if candidates.is_empty() {
+                continue;
+            }
             let scores = score_sets(sim, &candidates, objective, iterations, seed)?;
             evaluations += candidates.len();
             on_progress(evaluations);
@@ -130,4 +131,89 @@ pub fn eval(
     let jobs = [(set, Scenario::SingleTarget), (set, Scenario::Aoe)];
     let dps = sim.run(&jobs, iterations, seed)?;
     Ok((dps[0], dps[1]))
+}
+
+/// What the gem/enchant pass needs to build its shortlists. Absent means "items
+/// only".
+pub struct Refinement<'a> {
+    pub items: &'a dyn ItemCatalog,
+    pub gems: &'a dyn RefineCatalog,
+    pub professions: &'a [String],
+}
+
+/// The result of a full search for one objective.
+pub struct Outcome {
+    /// The set after the item search, before any gems or enchants moved. The
+    /// gem/enchant report is diffed against this.
+    pub items_only: GearSet,
+    /// The final recommendation.
+    pub best: GearSet,
+    pub search_sims: usize,
+    pub refine_sims: usize,
+}
+
+/// Search for one objective: items first, then — if `refine` is given — gems and
+/// enchants for the items that won, then a meta-gem repair if the greedy socket
+/// pass left the meta dark.
+///
+/// `on_progress` is called with a short phase label ("searching", "gems &
+/// enchants") and the running sim count for that phase.
+/// Matches the shape of `ascend` it wraps; splitting the sim budget out into a
+/// struct would churn every call site for one call.
+#[allow(clippy::too_many_arguments)]
+pub fn search(
+    sim: &dyn Simulator,
+    plan: &Plan,
+    base: &GearSet,
+    objective: Objective,
+    iterations: u32,
+    seed: i64,
+    refine_with: Option<Refinement<'_>>,
+    on_progress: impl Fn(&str, usize),
+) -> anyhow::Result<Outcome> {
+    let ascent = ascend(sim, plan, base, objective, iterations, seed, |n| {
+        on_progress("searching", n)
+    })?;
+
+    let items_only = ascent.best.clone();
+    let mut best = ascent.best;
+    let mut refine_sims = 0;
+
+    if let Some(r) = refine_with {
+        let groups = refine::plan(&best, r.items, r.gems, r.professions);
+        if !groups.is_empty() {
+            let refine_plan = Plan {
+                groups,
+                skipped: Vec::new(),
+            };
+            let pass = ascend(sim, &refine_plan, &best, objective, iterations, seed, |n| {
+                on_progress("gems & enchants", n)
+            })?;
+            best = pass.best;
+            refine_sims = pass.evaluations;
+        }
+
+        // Coordinate ascent cannot light a meta gem one socket at a time, so
+        // the cheapest repair is proposed here and judged by the engine.
+        if let Some(repaired) = refine::light_meta(&best, r.items, r.gems, r.professions) {
+            let scores = score_sets(
+                sim,
+                &[best.clone(), repaired.clone()],
+                objective,
+                iterations,
+                seed,
+            )?;
+            refine_sims += 2;
+            if scores[1] > scores[0] {
+                best = repaired;
+            }
+        }
+    }
+
+    Ok(Outcome {
+        items_only,
+        best,
+        search_sims: ascent.evaluations,
+        refine_sims,
+    })
 }

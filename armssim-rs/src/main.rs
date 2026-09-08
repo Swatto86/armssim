@@ -12,6 +12,7 @@ use armssim::domain::gear::GearSet;
 use armssim::domain::item::ItemCatalog;
 use armssim::domain::objective::Objective;
 use armssim::domain::plan::{self, Plan};
+use armssim::domain::refine;
 use armssim::domain::report;
 use armssim::infra::engine;
 use armssim::infra::itemdb::DbCatalog;
@@ -40,7 +41,7 @@ fn run() -> anyhow::Result<()> {
     let engine = engine::resolve(args.engine.clone())?;
     let catalog = DbCatalog::load(&engine.db_json)?;
     let jobs = args.jobs.unwrap_or_else(default_jobs);
-    let backend = WowSimsBackend::new(&character, &engine, jobs)?;
+    let backend = WowSimsBackend::new(&character, &engine, jobs, catalog.gem_colors())?;
 
     let equipped = character.equipped_set();
     let plan = Plan::build(&equipped, &character.bag_items, &catalog);
@@ -61,9 +62,23 @@ fn run() -> anyhow::Result<()> {
         .iter()
         .any(|o| matches!(o, Objective::Blend { .. }));
 
+    let professions: Vec<String> = character
+        .professions
+        .iter()
+        .map(|p| p.name.clone())
+        .collect();
+
     for objective in &objectives {
         optimize_and_report(
-            &backend, &plan, &catalog, &equipped, *objective, base_st, base_aoe, &args,
+            &backend,
+            &plan,
+            &catalog,
+            &equipped,
+            *objective,
+            base_st,
+            base_aoe,
+            &args,
+            &professions,
         )?;
     }
 
@@ -92,38 +107,53 @@ fn select_objectives(only: Only, aoe_fraction: f64) -> Vec<Objective> {
 fn optimize_and_report(
     backend: &dyn Simulator,
     plan: &Plan,
-    catalog: &dyn ItemCatalog,
+    catalog: &DbCatalog,
     equipped: &GearSet,
     objective: Objective,
     base_st: f64,
     base_aoe: f64,
     args: &Args,
+    professions: &[String],
 ) -> anyhow::Result<()> {
     let name = objective.name();
-    let progress = |n: usize| {
-        eprint!("\r  [{name}] searching... {n} sims");
+    let progress = |phase: &str, n: usize| {
+        eprint!("\r  [{name}] {phase}... {n} sims");
         let _ = std::io::stderr().flush();
     };
 
-    let ascent = optimize::ascend(
+    let refine_with = (!args.no_refine).then_some(optimize::Refinement {
+        items: catalog,
+        gems: catalog,
+        professions,
+    });
+    let outcome = optimize::search(
         backend,
         plan,
         equipped,
         objective,
         args.iterations,
         args.seed,
+        refine_with,
         progress,
     )
-    .with_context(|| format!("ascend ({name})"))?;
+    .with_context(|| format!("search ({name})"))?;
     eprintln!();
+    let best = outcome.best;
+    let refine_sims = outcome.refine_sims;
 
     // Re-sim the winner precisely in BOTH scenarios to show the real trade-off.
-    let (st, aoe) = optimize::eval(backend, &ascent.best, args.final_iterations, args.seed)
+    let (st, aoe) = optimize::eval(backend, &best, args.final_iterations, args.seed)
         .with_context(|| format!("final re-sim ({name})"))?;
 
+    let extra = if refine_sims > 0 {
+        format!(" + {refine_sims} for gems/enchants")
+    } else {
+        String::new()
+    };
     println!(
-        "\n=== BEST FOR {name} ===  ({} search sims)",
-        ascent.evaluations
+        "
+=== BEST FOR {name} ===  ({} search sims{extra})",
+        outcome.search_sims
     );
     println!(
         "  ST  {st:.1}  ({:+.1}, {:+.2}%)    AoE {aoe:.1}  ({:+.1}, {:+.2}%)",
@@ -133,14 +163,38 @@ fn optimize_and_report(
         100.0 * (aoe - base_aoe) / base_aoe
     );
 
-    let changes = report::diff(equipped, &ascent.best, catalog);
+    let changes = report::diff(equipped, &best, catalog);
     if changes.is_empty() {
         println!("  Current gear is already optimal here.");
-        return Ok(());
+    } else {
+        println!("  Equip:");
+        for ch in changes {
+            println!("    {:<9} {}  ->  {}", ch.label, ch.from, ch.to);
+        }
     }
-    println!("  Equip:");
-    for ch in changes {
-        println!("    {:<9} {}  ->  {}", ch.label, ch.from, ch.to);
+
+    // Gems and enchants are diffed against the post-item-search set: a slot
+    // whose item changed is already reported above, and its sockets are not a
+    // like-for-like comparison with what you had.
+    let refinements = report::refine_diff(&outcome.items_only, &best, catalog, catalog);
+    if !refinements.is_empty() {
+        println!("  Gems & enchants:");
+        for ch in refinements {
+            println!(
+                "    {:<9} {:<9} {}  ->  {}",
+                ch.label, ch.what, ch.from, ch.to
+            );
+        }
+    }
+
+    // Anything still unsocketed or unenchanted is free DPS being ignored —
+    // worth saying out loud, especially with --no-refine.
+    let gaps = refine::gaps(&best, catalog, catalog);
+    if !gaps.is_empty() {
+        println!("  Still missing:");
+        for gap in gaps {
+            println!("    {:<9} {}", gap.label, gap.what);
+        }
     }
     Ok(())
 }
@@ -153,7 +207,7 @@ fn warn_if_not_two_handed(equipped: &GearSet, catalog: &dyn ItemCatalog) {
     match equipped.get(14) {
         Some(mh) if plan::is_two_hander(catalog, mh.id) => {}
         Some(_) => eprintln!(
-            "warning: equipped main hand is not a two-hander — armssim only equips 2H              weapons, so 'Current gear' is not a valid Arms setup."
+            "warning: equipped main hand is not a two-hander. armssim only equips 2H              weapons, so 'Current gear' is not a valid Arms setup."
         ),
         None => eprintln!("warning: no main hand equipped in the export."),
     }

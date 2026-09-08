@@ -3,7 +3,9 @@
 //! sim engine.
 
 pub mod gear;
+pub mod gems;
 pub mod item;
 pub mod objective;
 pub mod plan;
+pub mod refine;
 pub mod report;

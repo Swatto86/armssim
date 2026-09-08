@@ -3,10 +3,13 @@
 //! the engine's own full-raid defaults so DPS lines up with the WoWSims site;
 //! the rotation is the engine's Arms APL, embedded verbatim.
 
+use std::collections::HashMap;
+
 use serde_json::{json, Value};
 
 use crate::app::character::Character;
 use crate::domain::gear::{GearSet, ItemSpec, Scenario, NUM_SLOTS};
+use crate::domain::gems;
 use crate::error::ArmssimError;
 
 /// The engine's Arms APL, embedded at build time.
@@ -18,10 +21,16 @@ pub struct RequestBuilder {
     player_base: Value,
     st_encounter: Value,
     aoe_encounter: Value,
+    /// Gem id → engine `GemColor`, needed to work out whether a socketed meta
+    /// gem is actually lit (see `equipment_items`).
+    gem_colors: HashMap<i32, i32>,
 }
 
 impl RequestBuilder {
-    pub fn new(character: &Character) -> anyhow::Result<RequestBuilder> {
+    pub fn new(
+        character: &Character,
+        gem_colors: HashMap<i32, i32>,
+    ) -> anyhow::Result<RequestBuilder> {
         let race = race_proto(&character.race)?;
         let (p1, p2) = professions(&character.professions);
         let rotation: Value = serde_json::from_str(ARMS_APL).expect("embedded arms APL is valid");
@@ -58,13 +67,14 @@ impl RequestBuilder {
             player_base,
             st_encounter: single_target_encounter(),
             aoe_encounter: multi_target_encounter(),
+            gem_colors,
         })
     }
 
     /// Assemble a full request for `set` in the given scenario.
     pub fn build(&self, set: &GearSet, scenario: Scenario, iterations: u32, seed: i64) -> Value {
         let mut player = self.player_base.clone();
-        player["equipment"] = json!({ "items": equipment_items(set) });
+        player["equipment"] = json!({ "items": equipment_items(set, &self.gem_colors) });
 
         let encounter = match scenario {
             Scenario::SingleTarget => self.st_encounter.clone(),
@@ -84,16 +94,37 @@ impl RequestBuilder {
 }
 
 /// Render the 17 slots as engine `ItemSpec`s; an empty slot becomes `{}`.
-fn equipment_items(set: &GearSet) -> Vec<Value> {
+///
+/// The engine never evaluates meta-gem requirements itself — `meta_gem_disabled`
+/// is documented in `common.proto` as "set by the UI" — so the item holding an
+/// unlit meta gem is flagged here. Without this, a set that fails the 2/2/2 rule
+/// would still be credited with the meta's stats.
+fn equipment_items(set: &GearSet, gem_colors: &HashMap<i32, i32>) -> Vec<Value> {
+    let meta_lit = meta_is_lit(set, gem_colors);
     (0..NUM_SLOTS)
         .map(|i| match set.get(i) {
-            Some(spec) if spec.id != 0 => item_spec(spec),
+            Some(spec) if spec.id != 0 => {
+                let holds_dark_meta = !meta_lit
+                    && spec
+                        .gems
+                        .iter()
+                        .any(|g| gem_colors.get(g).copied() == Some(gems::META));
+                item_spec(spec, holds_dark_meta)
+            }
             _ => json!({}),
         })
         .collect()
 }
 
-fn item_spec(spec: &ItemSpec) -> Value {
+/// Whether the set's meta gem (if any) meets its colour requirement.
+fn meta_is_lit(set: &GearSet, gem_colors: &HashMap<i32, i32>) -> bool {
+    let all_gems = (0..NUM_SLOTS)
+        .filter_map(|i| set.get(i))
+        .flat_map(|spec| spec.gems.iter().copied());
+    gems::meta_status(all_gems, |id| gem_colors.get(&id).copied()).active
+}
+
+fn item_spec(spec: &ItemSpec, meta_gem_disabled: bool) -> Value {
     let mut v = json!({ "id": spec.id });
     if spec.enchant != 0 {
         v["enchant"] = json!(spec.enchant);
@@ -104,6 +135,9 @@ fn item_spec(spec: &ItemSpec) -> Value {
     if spec.random_suffix != 0 {
         // Engine proto field `random_suffix` → protojson `randomSuffix`.
         v["randomSuffix"] = json!(spec.random_suffix);
+    }
+    if meta_gem_disabled {
+        v["metaGemDisabled"] = json!(true);
     }
     v
 }
@@ -327,10 +361,62 @@ mod tests {
             gems: vec![],
             random_suffix: -19,
         };
-        let v = item_spec(&spec);
+        let v = item_spec(&spec, false);
         assert_eq!(v["randomSuffix"], json!(-19));
         assert!(v.get("enchant").is_none());
         assert!(v.get("gems").is_none());
+    }
+
+    #[test]
+    fn flags_a_dark_meta_gem_on_the_item_holding_it() {
+        use crate::domain::gear::GearSet;
+        use crate::domain::gear::ItemSlot;
+
+        // Relentless Earthstorm (meta) plus a single red gem: 2/2/2 unmet.
+        let colors = HashMap::from([(32409, gems::META), (24027, gems::RED)]);
+        let mut set = GearSet::new();
+        set.set(
+            ItemSlot::Head.index(),
+            Some(ItemSpec {
+                id: 1,
+                enchant: 0,
+                gems: vec![32409, 24027],
+                random_suffix: 0,
+            }),
+        );
+
+        assert!(!meta_is_lit(&set, &colors));
+        let items = equipment_items(&set, &colors);
+        assert_eq!(items[0]["metaGemDisabled"], json!(true));
+    }
+
+    #[test]
+    fn a_met_requirement_leaves_the_meta_alone() {
+        use crate::domain::gear::GearSet;
+        use crate::domain::gear::ItemSlot;
+
+        // Two purple (red+blue) and two orange (red+yellow) gems give 4 red,
+        // 2 yellow, 2 blue — enough for Relentless Earthstorm.
+        let colors = HashMap::from([
+            (32409, gems::META),
+            (30546, gems::PURPLE),
+            (32217, gems::ORANGE),
+        ]);
+        let mut set = GearSet::new();
+        set.set(
+            ItemSlot::Head.index(),
+            Some(ItemSpec {
+                id: 1,
+                enchant: 0,
+                gems: vec![32409, 30546, 30546, 32217, 32217],
+                random_suffix: 0,
+            }),
+        );
+
+        assert!(meta_is_lit(&set, &colors));
+        assert!(equipment_items(&set, &colors)[0]
+            .get("metaGemDisabled")
+            .is_none());
     }
 
     #[test]
@@ -341,7 +427,7 @@ mod tests {
             gems: vec![10, 20],
             random_suffix: 0,
         };
-        let v = item_spec(&spec);
+        let v = item_spec(&spec, false);
         assert!(v.get("randomSuffix").is_none());
         assert_eq!(v["enchant"], json!(3));
         assert_eq!(v["gems"], json!([10, 20]));

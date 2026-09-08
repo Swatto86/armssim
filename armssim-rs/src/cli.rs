@@ -52,4 +52,8 @@ pub struct Args {
     /// Number of parallel sims (default: CPU count).
     #[arg(long)]
     pub jobs: Option<usize>,
+
+    /// Skip the gem/enchant pass and only search for items to equip.
+    #[arg(long = "no-refine", default_value_t = false)]
+    pub no_refine: bool,
 }

@@ -6,13 +6,15 @@ use armssim::app::character::Character;
 use armssim::app::optimize;
 use armssim::domain::objective::Objective;
 use armssim::domain::plan::Plan;
+use armssim::domain::refine;
 use armssim::domain::report;
 use armssim::infra::itemdb::DbCatalog;
 use armssim::infra::wowsims::WowSimsBackend;
 
 use crate::engine_resources;
 use crate::progress::{
-    ObjectiveResult, OnlySetting, ProgressEvent, RunResult, RunSettings, SlotChangeDto,
+    ObjectiveResult, OnlySetting, ProgressEvent, RefineChangeDto, RunResult, RunSettings,
+    SlotChangeDto,
 };
 
 #[tauri::command]
@@ -43,7 +45,7 @@ fn run_optimizer_blocking(
     let engine = engine_resources::resolve(app).map_err(anyhow::Error::msg)?;
     let catalog = DbCatalog::load(&engine.db_json)?;
     let jobs = settings.jobs.unwrap_or_else(default_jobs);
-    let backend = WowSimsBackend::new(&character, &engine, jobs)?;
+    let backend = WowSimsBackend::new(&character, &engine, jobs, catalog.gem_colors())?;
 
     let equipped = character.equipped_set();
     let plan = Plan::build(&equipped, &character.bag_items, &catalog);
@@ -59,43 +61,68 @@ fn run_optimizer_blocking(
 
     let objectives = select_objectives(settings.only, settings.aoe_fraction);
     let mut results = Vec::with_capacity(objectives.len());
+    let professions: Vec<String> = character
+        .professions
+        .iter()
+        .map(|p| p.name.clone())
+        .collect();
 
     for objective in objectives {
         let name = objective.name();
         let app_handle = app.clone();
         let objective_name = name.clone();
-        let progress = move |n: usize| {
+        let progress = move |phase: &str, n: usize| {
             let _ = app_handle.emit(
                 "optimize-progress",
                 ProgressEvent {
-                    objective: objective_name.clone(),
+                    objective: format!("{objective_name} — {phase}"),
                     sims: n,
                 },
             );
         };
 
-        let ascent = optimize::ascend(
+        let refine_with = (!settings.no_refine).then_some(optimize::Refinement {
+            items: &catalog,
+            gems: &catalog,
+            professions: &professions,
+        });
+        let outcome = optimize::search(
             &backend,
             &plan,
             &equipped,
             objective,
             settings.iterations,
             settings.seed,
+            refine_with,
             progress,
         )?;
         let (st, aoe) = optimize::eval(
             &backend,
-            &ascent.best,
+            &outcome.best,
             settings.final_iterations,
             settings.seed,
         )?;
-        let changes = report::diff(&equipped, &ascent.best, &catalog)
+        let changes = report::diff(&equipped, &outcome.best, &catalog)
             .into_iter()
             .map(|c| SlotChangeDto {
                 label: c.label,
                 from: c.from,
                 to: c.to,
             })
+            .collect();
+        let refinements =
+            report::refine_diff(&outcome.items_only, &outcome.best, &catalog, &catalog)
+                .into_iter()
+                .map(|c| RefineChangeDto {
+                    label: c.label,
+                    what: c.what,
+                    from: c.from,
+                    to: c.to,
+                })
+                .collect();
+        let missing = refine::gaps(&outcome.best, &catalog, &catalog)
+            .into_iter()
+            .map(|g| format!("{}: {}", g.label, g.what))
             .collect();
 
         results.push(ObjectiveResult {
@@ -106,8 +133,11 @@ fn run_optimizer_blocking(
             st_delta_pct: 100.0 * (st - base_st) / base_st,
             aoe_delta: aoe - base_aoe,
             aoe_delta_pct: 100.0 * (aoe - base_aoe) / base_aoe,
-            search_sims: ascent.evaluations,
+            search_sims: outcome.search_sims,
+            refine_sims: outcome.refine_sims,
             changes,
+            refinements,
+            missing,
         });
     }
 

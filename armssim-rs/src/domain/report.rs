@@ -2,14 +2,92 @@
 //! slot changes. Rings and trinkets are compared as unordered pairs, so a mere
 //! ring1<->ring2 reorder is not reported.
 
-use super::gear::{GearSet, ItemSlot, ItemSpec};
+use super::gear::{GearSet, ItemSlot, ItemSpec, NUM_SLOTS};
 use super::item::ItemCatalog;
+use super::refine::RefineCatalog;
 
 /// A single slot (or ring/trinket pair member) differing from the baseline.
 pub struct SlotChange {
     pub label: String,
     pub from: String,
     pub to: String,
+}
+
+/// A gem or enchant that changed during the refinement pass.
+pub struct RefineChange {
+    pub label: String,
+    /// "socket 1", "socket 2", or "enchant".
+    pub what: String,
+    pub from: String,
+    pub to: String,
+}
+
+/// Diff the gems and enchants of two sets holding the same items. Only slots
+/// whose item is unchanged are compared — a different item is already reported
+/// as an item swap, and its sockets are not a like-for-like comparison.
+pub fn refine_diff(
+    base: &GearSet,
+    refined: &GearSet,
+    items: &dyn ItemCatalog,
+    cat: &dyn RefineCatalog,
+) -> Vec<RefineChange> {
+    let mut out = Vec::new();
+
+    for slot in 0..NUM_SLOTS {
+        let (Some(before), Some(after)) = (base.get(slot), refined.get(slot)) else {
+            continue;
+        };
+        if before.id != after.id {
+            continue;
+        }
+        let label = ItemSlot::from_index(slot)
+            .map(|s| s.label().to_string())
+            .unwrap_or_default();
+        let item_type = items.lookup(after.id).map_or(0, |i| i.item_type);
+
+        let sockets = before.gems.len().max(after.gems.len());
+        for i in 0..sockets {
+            let old = before.gems.get(i).copied().unwrap_or(0);
+            let new = after.gems.get(i).copied().unwrap_or(0);
+            if old != new {
+                out.push(RefineChange {
+                    label: label.clone(),
+                    what: format!("socket {}", i + 1),
+                    from: gem_name(old, cat),
+                    to: gem_name(new, cat),
+                });
+            }
+        }
+
+        if before.enchant != after.enchant {
+            out.push(RefineChange {
+                label: label.clone(),
+                what: "enchant".to_string(),
+                from: enchant_name(before.enchant, item_type, cat),
+                to: enchant_name(after.enchant, item_type, cat),
+            });
+        }
+    }
+
+    out
+}
+
+fn gem_name(id: i32, cat: &dyn RefineCatalog) -> String {
+    if id == 0 {
+        return "(empty)".to_string();
+    }
+    cat.gem(id)
+        .map(|g| g.name.clone())
+        .unwrap_or_else(|| format!("gem {id}"))
+}
+
+fn enchant_name(id: i32, item_type: i32, cat: &dyn RefineCatalog) -> String {
+    if id == 0 {
+        return "(none)".to_string();
+    }
+    cat.enchant(id, item_type)
+        .map(|e| e.name.clone())
+        .unwrap_or_else(|| format!("enchant {id}"))
 }
 
 /// Slots compared individually (rings/trinkets handled as pairs).
@@ -134,6 +212,8 @@ mod tests {
         ItemInfo {
             name: name.to_string(),
             slots: vec![],
+            sockets: vec![],
+            item_type: 0,
         }
     }
 

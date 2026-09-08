@@ -107,7 +107,8 @@ C:\Users\Swatto\armssim\armssim-rs\target\release\armssim.exe `
 Flags: `--iterations` (search precision, default 1500), `--final-iterations`
 (precise re-sim of the winner, default 20000), `--aoe-fraction`, `--only`
 (`all`|`st`|`blend`|`aoe`), `--seed`, `--jobs` (parallel sims, default = CPU
-count), `--engine` (path to the engine directory; auto-detected if omitted).
+count), `--engine` (path to the engine directory; auto-detected if omitted),
+`--no-refine` (skip the gem/enchant pass).
 
 ### Output: three sets
 It prints the best gear for **three** objectives so you don't have to pick:
@@ -119,6 +120,36 @@ It prints the best gear for **three** objectives so you don't have to pick:
 
 Each set shows its ST *and* AoE DPS so you can see the trade-off. The BLEND set
 is usually the one to actually equip if your content is mixed.
+
+### Gems and enchants
+
+Once the items are settled, a second pass chooses **what to socket and what to
+enchant** on them, and prints the changes:
+
+```
+  Gems & enchants:
+    Head      socket 1  (empty)  ->  Inscribed Pyrestone
+    Head      enchant   (none)   ->  Glyph of Ferocity
+    MainHand  enchant   Mongoose ->  Enchant Weapon - Executioner
+  Still missing:
+    Meta      Relentless Earthstorm Diamond is not active - needs 2 red, 2 yellow, 2 blue
+```
+
+Every candidate is simmed, exactly like an item swap - the shortlist only
+decides what gets *offered*, never what wins. Gems come from the engine's own
+database, filtered to your professions (Jewelcrafter-only gems appear only if
+you are one) and excluding unique gems, which you could not socket twice anyway.
+Enchant candidates are a curated per-slot list, because the best weapon enchants
+are procs with no stat line to rank them by.
+
+It also repairs a **dark meta gem**: filling every socket greedily leaves the
+meta unlit, since no single gem swap can satisfy a 2-red/2-yellow/2-blue rule,
+so the cheapest conversion back to a lit meta is simmed against the greedy set
+and kept if it wins. On bare gear that repair alone was worth **+61 DPS** in
+testing.
+
+Turn the whole pass off with `--no-refine` (or the checkbox in the GUI) if you
+only want to know what to equip.
 
 ---
 
@@ -163,7 +194,12 @@ ExportAll (in-game)
              (each candidate is one wowsimcli sim; the pool runs them across
               every CPU core)
               ▼
-   "Equip exactly this for ST / for AoE", with the precise DPS delta
+             second pass over the winning set: one group per socket and per
+             enchantable slot, then a meta-gem repair if the greedy pass left
+             the meta dark
+              ▼
+   "Equip exactly this for ST / for AoE, socket and enchant it like this",
+   with the precise DPS delta
 ```
 
 ---
@@ -179,7 +215,11 @@ ExportAll (in-game)
   is usually stable. Buff configurability is a planned addition.
 - **Gains are usually small (~1–2%)** once your gear is good — the bigger levers
   are the two-hander itself, then the hit and expertise caps (see
-  `docs\arms-reference.md`).
+  `docs\arms-reference.md`). The gem/enchant pass is worth little on an already
+  optimised set (+8 DPS on the sample) and a great deal on a bare one (+452 DPS,
+  +18.6%, on the same items stripped of gems and enchants).
+- **It suggests gems and enchants, it cannot check you own them.** The shortlist
+  is what the engine's database says exists, minus the professions you lack.
 - **Each candidate is a separate `wowsimcli` process.** Startup cost per sim is
   fixed, so a full `--only all` run takes a few minutes. Use `--only blend`
   and/or a lower `--iterations` to go faster.
