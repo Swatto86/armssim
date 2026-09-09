@@ -207,7 +207,8 @@ fn warn_if_not_two_handed(equipped: &GearSet, catalog: &dyn ItemCatalog) {
     match equipped.get(14) {
         Some(mh) if plan::is_two_hander(catalog, mh.id) => {}
         Some(_) => eprintln!(
-            "warning: equipped main hand is not a two-hander. armssim only equips 2H              weapons, so 'Current gear' is not a valid Arms setup."
+            "warning: equipped main hand is not a two-hander. armssim only equips 2H \
+             weapons, so 'Current gear' is not a valid Arms setup."
         ),
         None => eprintln!("warning: no main hand equipped in the export."),
     }

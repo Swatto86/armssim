@@ -207,12 +207,13 @@ impl Plan {
             .get(14)
             .filter(|spec| is_two_hander(catalog, spec.id))
             .cloned();
+        let equipped_seeded = equipped_mh.is_some();
         let mh = dedupe(
             [equipped_mh]
                 .into_iter()
                 .chain(mh_pool.into_iter().map(Some)),
         );
-        add_weapon_group(&mut groups, &mh);
+        add_weapon_group(&mut groups, &mh, equipped_seeded);
 
         Plan { groups, skipped }
     }
@@ -256,7 +257,7 @@ pub fn is_two_hander(catalog: &dyn ItemCatalog, id: i32) -> bool {
 /// Two-handed main-hand options. Unlike the Fury sibling of this tool there is
 /// no pairing to search: each option equips one 2H and clears the off-hand, so
 /// an export taken in dual-wield gear converges on a legal Arms setup.
-fn add_weapon_group(groups: &mut Vec<Group>, mh: &[ItemSpec]) {
+fn add_weapon_group(groups: &mut Vec<Group>, mh: &[ItemSpec], equipped_seeded: bool) {
     let mut options: Vec<Assignment> = Vec::new();
     let mut seen = HashSet::new();
     for m in mh {
@@ -268,7 +269,12 @@ fn add_weapon_group(groups: &mut Vec<Group>, mh: &[ItemSpec]) {
             (ItemSlot::OffHand.index(), None),
         ]);
     }
-    if options.len() > 1 {
+    // A group is only worth a sim if it can actually change the gear. When the
+    // equipped two-hander leads the pool, one option is just the current
+    // weapon; when the export is dual-wield nothing was seeded, so a single
+    // bag two-hander is the only Arms-legal choice and must still be searched.
+    let minimum = if equipped_seeded { 2 } else { 1 };
+    if options.len() >= minimum {
         groups.push(Group::Swap(options));
     }
 }
@@ -434,6 +440,25 @@ mod tests {
             }),
             "a one-hander must never be offered"
         );
+    }
+
+    #[test]
+    fn lone_bag_two_hander_is_offered_when_the_equipped_main_hand_is_a_one_hander() {
+        // Dual-wield export plus exactly one 2H in the bags: the equipped
+        // one-hander is deliberately not seeded, so that single bag weapon is
+        // the only Arms-legal option and must still be searched.
+        let catalog = FakeCatalog(HashMap::from([
+            (100, two_hand_info()),
+            (999, ring_info()), // stands in for a non-2H equipped main hand
+        ]));
+        let mut equipped = GearSet::new();
+        equipped.set(ItemSlot::MainHand.index(), Some(spec(999)));
+        let bag = vec![spec(100)];
+
+        let plan = Plan::build(&equipped, &bag, &catalog);
+        let options = weapon_group(&plan);
+        assert_eq!(options.len(), 1, "the lone two-hander must be an option");
+        assert_eq!(ids_of(&options[0]), [100]);
     }
 
     #[test]
