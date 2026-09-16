@@ -108,7 +108,8 @@ Flags: `--iterations` (search precision, default 1500), `--final-iterations`
 (precise re-sim of the winner, default 20000), `--aoe-fraction`, `--only`
 (`all`|`st`|`blend`|`aoe`), `--seed`, `--jobs` (parallel sims, default = CPU
 count), `--engine` (path to the engine directory; auto-detected if omitted),
-`--no-refine` (skip the gem/enchant pass).
+`--no-refine` (skip the gem/enchant pass), `--keep-items` (keep your equipped
+items and only suggest gems and enchants for them).
 
 ### Output: three sets
 It prints the best gear for **three** objectives so you don't have to pick:
@@ -150,6 +151,20 @@ testing.
 
 Turn the whole pass off with `--no-refine` (or the checkbox in the GUI) if you
 only want to know what to equip.
+
+#### Just my current gear
+
+To keep everything you are wearing and only ask "what should I socket and
+enchant on *this*?", skip the item search:
+
+```powershell
+.\run.ps1 -Character .\me.json -KeepItems      # or: armssim.exe --keep-items me.json
+```
+
+(In the GUI: tick **Keep my equipped items**.) The DPS gain shown is purely from
+the gem and enchant changes, and every existing gem and enchant is a candidate to
+be replaced, not just empty sockets. The Arms rules still hold: a one-handed main
+hand in the export gets no suggestions — equip your two-hander before exporting.
 
 ---
 

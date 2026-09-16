@@ -74,6 +74,15 @@ pub fn ascend(
     let mut current = base.clone();
     let mut evaluations = 0;
 
+    // Nothing to decide (e.g. --keep-items): the base is the answer, and
+    // scoring it here would only spend a sim.
+    if plan.groups.is_empty() {
+        return Ok(Ascent {
+            best: current,
+            evaluations,
+        });
+    }
+
     let mut best_score = score_sets(
         sim,
         std::slice::from_ref(&current),
@@ -216,4 +225,113 @@ pub fn search(
         search_sims: ascent.evaluations,
         refine_sims,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::gear::{ItemSlot, ItemSpec};
+    use crate::domain::gems;
+    use crate::domain::item::ItemInfo;
+    use crate::domain::refine::{EnchantInfo, GemInfo};
+
+    /// DPS is the sum of every socketed gem id, so a higher id always wins.
+    struct GemSum;
+    impl Simulator for GemSum {
+        fn run(&self, jobs: &[Job<'_>], _: u32, _: i64) -> anyhow::Result<Vec<f64>> {
+            Ok(jobs
+                .iter()
+                .map(|(set, _)| {
+                    (0..crate::domain::gear::NUM_SLOTS)
+                        .filter_map(|i| set.get(i))
+                        .flat_map(|s| s.gems.iter())
+                        .map(|g| f64::from(*g))
+                        .sum()
+                })
+                .collect())
+        }
+    }
+
+    struct Items;
+    impl ItemCatalog for Items {
+        fn lookup(&self, id: i32) -> Option<ItemInfo> {
+            (id == 100).then(|| ItemInfo {
+                name: "Legs".into(),
+                slots: vec![ItemSlot::Legs],
+                sockets: vec![gems::RED],
+                item_type: 9,
+            })
+        }
+    }
+
+    struct Gems(Vec<GemInfo>);
+    impl RefineCatalog for Gems {
+        fn gem(&self, id: i32) -> Option<&GemInfo> {
+            self.0.iter().find(|g| g.id == id)
+        }
+        fn all_gems(&self) -> &[GemInfo] {
+            &self.0
+        }
+        fn enchant(&self, _: i32, _: i32) -> Option<&EnchantInfo> {
+            None
+        }
+    }
+
+    fn red(id: i32, strength: f64) -> GemInfo {
+        let mut stats = vec![0.0; 42];
+        stats[0] = strength;
+        GemInfo {
+            id,
+            name: format!("gem{id}"),
+            color: gems::RED,
+            stats,
+            unique: false,
+            profession: String::new(),
+        }
+    }
+
+    #[test]
+    fn keeping_items_refines_the_equipped_set_without_searching() {
+        let mut equipped = GearSet::new();
+        let legs = ItemSpec {
+            id: 100,
+            enchant: 0,
+            gems: vec![1],
+            random_suffix: 0,
+        };
+        equipped.set(ItemSlot::Legs.index(), Some(legs));
+        let gem_db = Gems(vec![red(1, 4.0), red(2, 8.0)]);
+        let no_items = Plan {
+            groups: Vec::new(),
+            skipped: Vec::new(),
+        };
+
+        let outcome = search(
+            &GemSum,
+            &no_items,
+            &equipped,
+            Objective::SingleTarget,
+            1,
+            1,
+            Some(Refinement {
+                items: &Items,
+                gems: &gem_db,
+                professions: &[],
+            }),
+            |_, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(
+            outcome.search_sims, 0,
+            "no item search when nothing to swap"
+        );
+        assert_eq!(
+            outcome.items_only.get(ItemSlot::Legs.index()),
+            equipped.get(ItemSlot::Legs.index())
+        );
+        let best = outcome.best.get(ItemSlot::Legs.index()).unwrap();
+        assert_eq!(best.id, 100, "the equipped item is kept");
+        assert_eq!(best.gems, vec![2], "the better gem is suggested");
+    }
 }

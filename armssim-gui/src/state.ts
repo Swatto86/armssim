@@ -10,6 +10,7 @@ export interface RunSettings {
   seed: number;
   jobs: number | null;
   noRefine: boolean;
+  keepItems: boolean;
 }
 
 export interface SlotChangeDto {
@@ -45,6 +46,7 @@ export interface RunResult {
   characterRace: string;
   candidatePool: number;
   skipped: number;
+  keepItems: boolean;
   baseSt: number;
   baseAoe: number;
   objectives: ObjectiveResult[];
@@ -64,6 +66,7 @@ export const DEFAULT_SETTINGS: RunSettings = {
   seed: 1,
   jobs: null,
   noRefine: false,
+  keepItems: false,
 };
 
 const CHARACTER_KEY = "armssim.characterJson";

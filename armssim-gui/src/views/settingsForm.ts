@@ -13,6 +13,7 @@ export async function initSettingsForm(): Promise<SettingsForm> {
   const seedInput = document.querySelector<HTMLInputElement>("#setting-seed")!;
   const jobsInput = document.querySelector<HTMLInputElement>("#setting-jobs")!;
   const refineInput = document.querySelector<HTMLInputElement>("#setting-refine")!;
+  const keepItemsInput = document.querySelector<HTMLInputElement>("#setting-keep-items")!;
   const errorEl = document.querySelector<HTMLParagraphElement>("#settings-error")!;
 
   const settings = loadSettings();
@@ -23,6 +24,7 @@ export async function initSettingsForm(): Promise<SettingsForm> {
   seedInput.value = String(settings.seed);
   jobsInput.value = settings.jobs === null ? "" : String(settings.jobs);
   refineInput.checked = !settings.noRefine;
+  keepItemsInput.checked = settings.keepItems;
 
   invoke<number>("get_default_jobs").then((defaultJobs) => {
     jobsInput.placeholder = `auto (${defaultJobs})`;
@@ -31,7 +33,7 @@ export async function initSettingsForm(): Promise<SettingsForm> {
   function persist(): void {
     saveSettings(readRaw());
   }
-  for (const input of [onlySelect, aoeFractionInput, iterationsInput, finalIterationsInput, seedInput, jobsInput, refineInput]) {
+  for (const input of [onlySelect, aoeFractionInput, iterationsInput, finalIterationsInput, seedInput, jobsInput, refineInput, keepItemsInput]) {
     input.addEventListener("change", persist);
   }
 
@@ -44,6 +46,7 @@ export async function initSettingsForm(): Promise<SettingsForm> {
       seed: Number(seedInput.value),
       jobs: jobsInput.value === "" ? null : Number(jobsInput.value),
       noRefine: !refineInput.checked,
+      keepItems: keepItemsInput.checked,
     };
   }
 
@@ -52,6 +55,11 @@ export async function initSettingsForm(): Promise<SettingsForm> {
       const raw = readRaw();
       if (!(raw.aoeFraction >= 0 && raw.aoeFraction <= 1)) {
         errorEl.textContent = "AoE fraction must be between 0 and 1.";
+        errorEl.classList.remove("hidden");
+        return null;
+      }
+      if (raw.keepItems && raw.noRefine) {
+        errorEl.textContent = "Keeping your items only makes sense with gems & enchants switched on.";
         errorEl.classList.remove("hidden");
         return null;
       }

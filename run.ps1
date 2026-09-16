@@ -21,7 +21,9 @@ param(
     [ValidateRange(0.0, 1.0)]
     [double]$AoeFraction = 0.3,
     [ValidateSet('all', 'st', 'blend', 'aoe')]
-    [string]$Only = 'all'
+    [string]$Only = 'all',
+    # Keep the equipped items; only suggest gem and enchant changes for them.
+    [switch]$KeepItems
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,6 +51,8 @@ if (-not (Test-Path $exe)) {
 if (-not (Test-Path $Character)) { throw "Character export not found: $Character" }
 
 $aoeArg = $AoeFraction.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+$extra = @()
+if ($KeepItems) { $extra += '--keep-items' }
 
 & $exe `
     --iterations $Iterations `
@@ -56,4 +60,5 @@ $aoeArg = $AoeFraction.ToString([System.Globalization.CultureInfo]::InvariantCul
     --aoe-fraction $aoeArg `
     --only $Only `
     --engine $engine `
+    @extra `
     $Character

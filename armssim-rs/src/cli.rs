@@ -56,4 +56,13 @@ pub struct Args {
     /// Skip the gem/enchant pass and only search for items to equip.
     #[arg(long = "no-refine", default_value_t = false)]
     pub no_refine: bool,
+
+    /// Keep the equipped items and only suggest gem and enchant changes for
+    /// them (skips the item search).
+    #[arg(
+        long = "keep-items",
+        default_value_t = false,
+        conflicts_with = "no_refine"
+    )]
+    pub keep_items: bool,
 }

@@ -16,7 +16,7 @@ function fmtDelta(value: number, pct: number): string {
   return `${sign}${value.toFixed(1)} (${sign}${pct.toFixed(2)}%)`;
 }
 
-function objectiveCard(objective: ObjectiveResult): HTMLElement {
+function objectiveCard(objective: ObjectiveResult, keepItems: boolean): HTMLElement {
   const card = el("div", "card bg-base-100 shadow");
   const body = el("div", "card-body gap-2");
   card.appendChild(body);
@@ -44,7 +44,11 @@ function objectiveCard(objective: ObjectiveResult): HTMLElement {
   dps.appendChild(aoeCell);
   body.appendChild(dps);
 
-  if (objective.changes.length === 0) {
+  if (keepItems) {
+    if (objective.refinements.length === 0) {
+      body.appendChild(el("p", "text-sm italic opacity-70", "Gems & enchants are already optimal here."));
+    }
+  } else if (objective.changes.length === 0) {
     body.appendChild(el("p", "text-sm italic opacity-70", "Current gear is already optimal here."));
   } else {
     const list = el("ul", "text-sm flex flex-col gap-1");
@@ -97,7 +101,9 @@ export function renderResults(container: HTMLElement, result: RunResult): void {
     el(
       "p",
       undefined,
-      `Candidate pool: ${result.candidatePool} bag/bank items (${result.skipped} skipped as non-gear)`,
+      result.keepItems
+        ? "Keeping equipped items: suggesting gems and enchants only"
+        : `Candidate pool: ${result.candidatePool} bag/bank items (${result.skipped} skipped as non-gear)`,
     ),
   );
   summary.appendChild(
@@ -110,7 +116,7 @@ export function renderResults(container: HTMLElement, result: RunResult): void {
   container.appendChild(summary);
 
   for (const objective of result.objectives) {
-    container.appendChild(objectiveCard(objective));
+    container.appendChild(objectiveCard(objective, result.keepItems));
   }
 }
 

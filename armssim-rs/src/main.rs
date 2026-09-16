@@ -44,12 +44,18 @@ fn run() -> anyhow::Result<()> {
     let backend = WowSimsBackend::new(&character, &engine, jobs, catalog.gem_colors())?;
 
     let equipped = character.equipped_set();
-    let plan = Plan::build(&equipped, &character.bag_items, &catalog);
-    println!(
-        "Candidate pool: {} bag/bank items ({} skipped as non-gear or not a two-hander)",
-        character.bag_items.len(),
-        plan.skipped.len()
-    );
+    let mut plan = Plan::build(&equipped, &character.bag_items, &catalog);
+    if args.keep_items {
+        // No item decisions: the refinement pass runs on the equipped set.
+        plan.groups.clear();
+        println!("Keeping equipped items: suggesting gems and enchants only");
+    } else {
+        println!(
+            "Candidate pool: {} bag/bank items ({} skipped as non-gear or not a two-hander)",
+            character.bag_items.len(),
+            plan.skipped.len()
+        );
+    }
     warn_if_not_two_handed(&equipped, &catalog);
 
     // Precise baseline (current gear) at final iterations.
@@ -163,13 +169,17 @@ fn optimize_and_report(
         100.0 * (aoe - base_aoe) / base_aoe
     );
 
-    let changes = report::diff(equipped, &best, catalog);
-    if changes.is_empty() {
-        println!("  Current gear is already optimal here.");
-    } else {
-        println!("  Equip:");
-        for ch in changes {
-            println!("    {:<9} {}  ->  {}", ch.label, ch.from, ch.to);
+    // With --keep-items no item was searched, so "already optimal" would be a
+    // claim about the wrong thing.
+    if !args.keep_items {
+        let changes = report::diff(equipped, &best, catalog);
+        if changes.is_empty() {
+            println!("  Current gear is already optimal here.");
+        } else {
+            println!("  Equip:");
+            for ch in changes {
+                println!("    {:<9} {}  ->  {}", ch.label, ch.from, ch.to);
+            }
         }
     }
 
@@ -177,7 +187,11 @@ fn optimize_and_report(
     // whose item changed is already reported above, and its sockets are not a
     // like-for-like comparison with what you had.
     let refinements = report::refine_diff(&outcome.items_only, &best, catalog, catalog);
-    if !refinements.is_empty() {
+    if refinements.is_empty() {
+        if args.keep_items {
+            println!("  Gems & enchants are already optimal here.");
+        }
+    } else {
         println!("  Gems & enchants:");
         for ch in refinements {
             println!(

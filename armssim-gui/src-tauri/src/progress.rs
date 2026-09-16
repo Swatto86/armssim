@@ -28,6 +28,9 @@ pub struct RunSettings {
     /// that predate it.
     #[serde(default)]
     pub no_refine: bool,
+    /// Keep the equipped items and only choose gems and enchants for them.
+    #[serde(default)]
+    pub keep_items: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -81,6 +84,7 @@ pub struct RunResult {
     pub character_race: String,
     pub candidate_pool: usize,
     pub skipped: usize,
+    pub keep_items: bool,
     pub base_st: f64,
     pub base_aoe: f64,
     pub objectives: Vec<ObjectiveResult>,

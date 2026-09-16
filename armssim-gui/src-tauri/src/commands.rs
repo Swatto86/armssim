@@ -48,7 +48,14 @@ fn run_optimizer_blocking(
     let backend = WowSimsBackend::new(&character, &engine, jobs, catalog.gem_colors())?;
 
     let equipped = character.equipped_set();
-    let plan = Plan::build(&equipped, &character.bag_items, &catalog);
+    if settings.keep_items && settings.no_refine {
+        anyhow::bail!("Keeping current items needs the gem & enchant pass switched on");
+    }
+    let mut plan = Plan::build(&equipped, &character.bag_items, &catalog);
+    if settings.keep_items {
+        // No item decisions: the refinement pass runs on the equipped set.
+        plan.groups.clear();
+    }
     let candidate_pool = character.bag_items.len();
     let skipped = plan.skipped.len();
 
@@ -146,6 +153,7 @@ fn run_optimizer_blocking(
         character_race: character.race,
         candidate_pool,
         skipped,
+        keep_items: settings.keep_items,
         base_st,
         base_aoe,
         objectives: results,
